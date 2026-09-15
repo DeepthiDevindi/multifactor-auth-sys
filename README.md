@@ -31,11 +31,11 @@ Design principles:
 
 | # | Member | Slice | Owns |
 |---|--------|-------|------|
-| 1 | _name_ | **Accounts & Factor 1 (knowledge)** | User DB, `/register`, `/login`, `/logout`, sessions, Argon2id password hashing, PIN option for audio keypad entry |
-| 2 | _name_ | **Factor 2 (possession: OTP)** | TOTP (RFC 6238) enrol + verify, email OTP alternative, backup codes, secret offered as spoken/copyable text (not QR only) |
-| 3 | _name_ | **Factor 3 (WebAuthn / passkey)** | WebAuthn register + login ceremonies, credential storage, fallback route when no authenticator is available |
-| 4 | _name_ | **Accessible client** | All screens (register, login, enrol, verify, recovery); ARIA, focus order, keyboard-only, Web Speech API prompts, audio cues, high-contrast/large-text mode |
-| 5 | _name_ | **Orchestration, hardening & security evaluation** | Auth state machine (`/auth/status`), shared lockout/rate-limit middleware, audit log, recovery flow, HTTPS, security headers, CSRF, attack tests, STRIDE threat model |
+| 1 | vidushi | **Accounts & Factor 1 (knowledge)** | User DB, `/register`, `/login`, `/logout`, sessions, Argon2id password hashing, PIN option for audio keypad entry |
+| 2 | thisuri | **Factor 2 (possession: OTP)** | TOTP (RFC 6238) enrol + verify, email OTP alternative, backup codes, secret offered as spoken/copyable text (not QR only) |
+| 3 | deepthi_ | **Factor 3 (WebAuthn / passkey)** | WebAuthn register + login ceremonies, credential storage, fallback route when no authenticator is available |
+| 4 | sanuji | **Accessible client** | All screens (register, login, enrol, verify, recovery); ARIA, focus order, keyboard-only, Web Speech API prompts, audio cues, high-contrast/large-text mode |
+| 5 | januli | **Orchestration, hardening & security evaluation** | Auth state machine (`/auth/status`), shared lockout/rate-limit middleware, audit log, recovery flow, HTTPS, security headers, CSRF, attack tests, STRIDE threat model |
 
 Each member is responsible for their own:
 
