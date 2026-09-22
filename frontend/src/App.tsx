@@ -47,6 +47,12 @@ function sessionId() {
   return created
 }
 
+function identityHeaders(userId: string | null, email: string): Record<string, string> {
+  const headers: Record<string, string> = { 'X-Session-Id': sessionId(), 'X-User-Email': email || 'demo@example.com' }
+  if (userId) headers['X-User-Id'] = userId
+  return headers
+}
+
 function App() {
   const [view, setView] = useState<View>('login')
   const [username, setUsername] = useState('')
@@ -54,6 +60,7 @@ function App() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [emailPurpose, setEmailPurpose] = useState<'login' | 'registration'>('login')
+  const [userId, setUserId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [largeText, setLargeText] = useState(false)
   const [highContrast, setHighContrast] = useState(false)
@@ -85,10 +92,18 @@ function App() {
     }
     try {
       const purpose = view === 'register' ? 'registration' : 'login'
+      const accountResponse = await fetch(`${API_BASE_URL}/${view === 'register' ? 'register' : 'login'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(view === 'register' ? { email, username, password } : { email, password }),
+      })
+      const accountResult = await accountResponse.json().catch(() => null)
+      if (!accountResponse.ok) throw new Error(accountResult?.message ?? (view === 'register' ? 'That account could not be created.' : 'That email address and password combination is not recognised.'))
+      setUserId(accountResult.userId)
       setEmailPurpose(purpose)
       const response = await fetch(`${API_BASE_URL}/mfa/email/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-User-Email': email, 'X-Session-Id': sessionId() },
+        headers: { 'Content-Type': 'application/json', ...identityHeaders(accountResult.userId, email) },
         body: JSON.stringify({ email, purpose }),
       })
       const result = await response.json().catch(() => null)
@@ -110,7 +125,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/mfa/email/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-User-Email': email, 'X-Session-Id': sessionId() },
+        headers: { 'Content-Type': 'application/json', ...identityHeaders(userId, email) },
         body: JSON.stringify({ email, code, purpose: emailPurpose }),
       })
       const result = await response.json().catch(() => null)
@@ -131,7 +146,7 @@ function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/mfa/email/send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-User-Email': email, 'X-Session-Id': sessionId() },
+        headers: { 'Content-Type': 'application/json', ...identityHeaders(userId, email) },
         body: JSON.stringify({ email, purpose: emailPurpose }),
       })
       const result = await response.json().catch(() => null)
@@ -150,7 +165,7 @@ function App() {
       return
     }
     try {
-      const headers = { 'X-Session-Id': sessionId(), 'X-User-Email': email || 'demo@example.com' }
+      const headers = identityHeaders(userId, email)
       const optionsResponse = await fetch(`${API_BASE_URL}/webauthn/login/options`, { method: 'POST', headers })
       if (!optionsResponse.ok) throw new Error('options')
       const options = await optionsResponse.json()
@@ -204,7 +219,7 @@ function App() {
       return
     }
     try {
-      const headers = { 'X-Session-Id': sessionId(), 'X-User-Email': email || 'demo@example.com' }
+      const headers = identityHeaders(userId, email)
       const optionsResponse = await fetch(`${API_BASE_URL}/webauthn/register/options`, { method: 'POST', headers })
       if (!optionsResponse.ok) throw new Error('options')
       const options = await optionsResponse.json()
@@ -279,7 +294,7 @@ function App() {
           {view === 'otp' ? <OtpForm email={email} code={code} message={message} setCode={setCode} onSubmit={submitCode} onResend={resendCode} onPasskey={() => { setMessage(''); setView('passkey') }} /> : null}
           {view === 'passkey' ? <PasskeyScreen message={message} onBack={() => { setMessage(''); setView('otp') }} onStart={startPasskeyLogin} /> : null}
           {view === 'enroll' ? <PasskeyEnrollmentScreen message={message} onBack={() => { setMessage(''); setView('success') }} onStart={startPasskeyEnrollment} /> : null}
-          {view === 'success' ? <SuccessScreen username={username} message={message} onEnroll={() => { setMessage(''); setView('enroll') }} onReset={() => { setPassword(''); setCode(''); setMessage(''); setView('login') }} /> : null}
+          {view === 'success' ? <SuccessScreen username={username} message={message} onEnroll={() => { setMessage(''); setView('enroll') }} onReset={() => { setPassword(''); setCode(''); setUserId(null); setMessage(''); setView('login') }} /> : null}
         </div>
       </section>
 
