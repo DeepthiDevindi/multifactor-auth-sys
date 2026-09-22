@@ -15,8 +15,8 @@ Conventions (fill in at kick-off):
 
 | Method | Path | Request | Response | Notes |
 |--------|------|---------|----------|-------|
-| POST | `/register` | `{ username, password \| pin }` | `201 { userId }` | Argon2id; enforce policy |
-| POST | `/login` | `{ username, password \| pin }` | `200 { next: "factor2" \| "factor3" \| "done" }` | Calls M5 rate limiter |
+| POST | `/register` | `{ email, username?, password \| pin }` | `201 { userId }` | Email is the unique account identifier; Argon2id; enforce policy |
+| POST | `/login` | `{ email, password \| pin }` | `200 { next: "factor2" \| "factor3" \| "done" }` | Email is used for lookup; calls M5 rate limiter |
 | POST | `/logout` | – | `204` | |
 | GET | `/me` | – | `200 { userId, username, factorsEnrolled: [...] }` | Requires full auth |
 
@@ -57,7 +57,7 @@ Middleware (used by all): `rateLimit(key, maxAttempts, window)`, `lockout(userId
 
 | Screen | Calls | Spoken prompt on load |
 |--------|-------|-----------------------|
-| Register | `/register` | "Create an account. Enter a username." |
+| Register | `/register` | "Create an account. Enter your email address." |
 | Login – step 1 | `/login` | |
 | Login – OTP | `/mfa/totp/verify` or `/mfa/email/verify` | "Put on headphones if you are in public." |
 | Login – passkey | `/webauthn/login/*` | "Touch your security key or use your fingerprint." |

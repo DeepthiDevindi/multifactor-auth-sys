@@ -90,7 +90,7 @@ Each member is responsible for their own:
 
 | Decision | Options | Chosen |
 |----------|---------|--------|
-| Stack | Recommended: web app — Python FastAPI **or** Node/Express backend; plain HTML/JS **or** React front end. Reason: screen readers already work in browsers; WebAuthn and Web Speech API are built in. | `___` |
+| Stack | React + TypeScript + Vite frontend; backend remains a separate implementation owned by the server contributors. | React client selected for the accessible client |
 | Deadline | From module handbook | `___` |
 | Factor set | Default: password/PIN + TOTP/email OTP + WebAuthn | `___` |
 | Which factors are mandatory vs optional per login | e.g. F1 + one of F2/F3 | `___` |
@@ -108,7 +108,15 @@ Each member is responsible for their own:
 
 ## 8. Running the project
 
-_To be filled in once the stack is chosen._
+The accessible client lives in `frontend/` and currently uses local mock behavior while the backend is developed against the API contract.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The backend boundary is kept in `backend/`; backend contributors should implement the endpoints in `docs/api-contract.md` there without moving client code.
 
 ---
 
