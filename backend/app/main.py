@@ -3,12 +3,16 @@ import json
 import os
 import secrets
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +21,7 @@ from .db import (
     PasskeyCredential,
     RememberedBrowser,
     SessionLocal,
+    User,
     WebAuthnChallenge,
     cleanup_expired,
     consume_challenge,
@@ -59,6 +64,23 @@ allowed_frontend_origins = {
 
 
 serializer = URLSafeTimedSerializer(SECRET_KEY, salt="cryptix-remembered-browser")
+password_hasher = PasswordHasher()
+# Verified on every login with no matching account, so a lookup miss takes about as long as a real check.
+_DUMMY_PASSWORD_HASH = password_hasher.hash("cryptix-timing-decoy-password")
+MIN_PASSWORD_LENGTH = 12
+LOGIN_LOCK_THRESHOLD = 5
+LOGIN_LOCK_BASE_SECONDS = 60
+LOGIN_LOCK_MAX_SECONDS = 15 * 60
+
+
+def is_strong_password(password: str) -> bool:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return False
+    has_lower = any(character.islower() for character in password)
+    has_upper = any(character.isupper() for character in password)
+    has_digit = any(character.isdigit() for character in password)
+    has_symbol = any(not character.isalnum() for character in password)
+    return has_lower and has_upper and has_digit and has_symbol
 
 app = FastAPI(title="Cryptix Passkey Service", version="0.1.0")
 app.add_middleware(
@@ -68,6 +90,18 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "X-User-Id", "X-User-Email", "X-Username", "X-Session-Id"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Without this, an unhandled exception is turned into a 500 by Starlette's
+    # ServerErrorMiddleware, which sits outside CORSMiddleware, so the response
+    # reaches the browser with no Access-Control-Allow-Origin header and shows
+    # up there as a CORS failure instead of the real error.
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "message": "Something went wrong. Please try again."},
+    )
 
 
 def current_user(user_id: str | None, email: str | None, username: str | None = None) -> tuple[str, str]:
@@ -87,6 +121,80 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/register", status_code=status.HTTP_201_CREATED)
+def register(payload: dict[str, Any]) -> dict[str, str]:
+    email = str(payload.get("email") or "").strip().lower()
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    if "@" not in email or not username or not is_strong_password(password):
+        raise json_error(
+            "registration_invalid",
+            "Enter a display name, a valid email address, and a password with at least 12 characters including "
+            "an uppercase letter, a lowercase letter, a number, and a symbol.",
+            400,
+        )
+    try:
+        with SessionLocal.begin() as session:
+            if session.scalar(select(User).where(User.email == email)) is not None:
+                raise json_error("account_exists", "An account with this email address already exists. Sign in instead.", 409)
+            if session.scalar(select(User).where(User.username == username)) is not None:
+                raise json_error("username_taken", "That display name is already taken. Choose another one.", 409)
+            user = User(
+                id=str(uuid.uuid4()),
+                username=username,
+                email=email,
+                password_hash=password_hasher.hash(password),
+                created_at=utc_now(),
+            )
+            session.add(user)
+            session.flush()
+            user_id = user.id
+    except IntegrityError as error:
+        raise json_error("account_exists", "An account with this email address or display name already exists.", 409) from error
+    return {"userId": user_id}
+
+
+@app.post("/login")
+def login(payload: dict[str, Any]) -> dict[str, str]:
+    email = str(payload.get("email") or "").strip().lower()
+    password = str(payload.get("password") or "")
+    invalid = json_error("invalid_credentials", "That email address and password combination is not recognised.", 401)
+    if "@" not in email or not password:
+        raise invalid
+    with SessionLocal.begin() as session:
+        user = session.scalar(select(User).where(User.email == email))
+        if user is None:
+            try:
+                password_hasher.verify(_DUMMY_PASSWORD_HASH, password)
+            except VerifyMismatchError:
+                pass
+            outcome = "invalid"
+        elif user.locked_until is not None and as_utc(user.locked_until) > utc_now():
+            outcome = "locked"
+        else:
+            try:
+                password_hasher.verify(user.password_hash, password)
+            except VerifyMismatchError:
+                user.failed_attempts += 1
+                if user.failed_attempts >= LOGIN_LOCK_THRESHOLD:
+                    lock_seconds = min(
+                        LOGIN_LOCK_BASE_SECONDS * (2 ** (user.failed_attempts - LOGIN_LOCK_THRESHOLD)),
+                        LOGIN_LOCK_MAX_SECONDS,
+                    )
+                    user.locked_until = datetime.fromtimestamp(time.time() + lock_seconds, timezone.utc)
+                outcome = "invalid"
+            else:
+                user.failed_attempts = 0
+                user.locked_until = None
+                outcome = "ok"
+        user_id = user.id if user is not None and outcome == "ok" else None
+    if outcome == "locked":
+        raise json_error("account_locked", "Too many incorrect attempts. Try again in a few minutes.", 423)
+    if outcome != "ok" or user_id is None:
+        raise invalid
+    return {"userId": user_id, "next": "factor2"}
 
 
 @app.post("/mfa/email/send", status_code=status.HTTP_202_ACCEPTED)
@@ -152,6 +260,10 @@ def verify_email_code(
             record.attempts += 1
             raise json_error("email_code_invalid", "That code is not valid. Check the email and try again.", 400)
         record.used_at = utc_now()
+        if purpose == "registration":
+            user = session.scalar(select(User).where(User.id == user_id))
+            if user is not None and user.email_confirmed_at is None:
+                user.email_confirmed_at = utc_now()
     return {"next": "done" if purpose == "login" else "factor_setup"}
 
 
@@ -199,7 +311,7 @@ def registration_verify(
     try:
         verification = verify_registration_response(
             credential=credential,
-            expected_challenge=challenge.value,
+            expected_challenge=challenge,
             expected_rp_id=RP_ID,
             expected_origin=EXPECTED_ORIGIN,
             require_user_verification=False,
@@ -270,7 +382,7 @@ def authentication_verify(
     try:
         verification = verify_authentication_response(
             credential=assertion,
-            expected_challenge=challenge.value,
+            expected_challenge=challenge,
             expected_rp_id=RP_ID,
             expected_origin=EXPECTED_ORIGIN,
             credential_public_key=stored.public_key,
