@@ -114,7 +114,7 @@ Each member is responsible for their own:
 
 | Decision | Chosen | Where |
 |----------|--------|-------|
-| Stack | **FastAPI + PostgreSQL + plain HTML/JS client**, no front-end framework, no Redis; cryptography only from established libraries | §3, D1 |
+| Stack | **FastAPI + PostgreSQL backend, React + TypeScript + Vite client**, no Redis; cryptography only from established libraries | §3, D1 |
 | Factor 1 | Password (8+ chars) or numeric PIN (6+ digits), checked against a common-password list, stored as a salted Argon2id hash | §4.2, D2 |
 | Factor 2 | Authenticator-app OTP **or** passkey / security key (passkey preferred); ten single-use backup codes as support | §4.3, D3 |
 | What a login needs | Factor 1 **plus exactly one** strong second factor. Password + backup code is a full login. Emailed code opens only a restricted session and can add a new factor only after a 24-hour waiting period with a cancel link | §4.1, §5.4, D4, D8 |
@@ -142,7 +142,15 @@ Testing with blind and low-vision participants is planned but has not been done 
 
 ## 8. Running the project
 
-_To be filled in once the backend exists._
+The accessible client lives in `frontend/` and currently uses local mock behavior while the backend is developed against the API contract.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The backend boundary is kept in `backend/`; backend contributors should implement the endpoints in `docs/api-contract.md` there without moving client code.
 
 ---
 
